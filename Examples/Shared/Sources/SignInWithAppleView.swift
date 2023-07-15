@@ -36,8 +36,8 @@ struct SignInWithAppleView: View {
           try await client.signInWithIdToken(
             credentials: .init(
               provider: .apple,
-              idToken: idToken/*,
-              nonce: self.nonce*/
+              idToken: idToken /* ,
+               nonce: self.nonce */
             )
           )
         } catch {
