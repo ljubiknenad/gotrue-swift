@@ -14,20 +14,28 @@ public final class GoTrueClient {
     public let url: URL
     public var headers: [String: String]
     public let localStorage: GoTrueLocalStorage
+    public let encoder: JSONEncoder
+    public let decoder: JSONDecoder
     public let fetch: FetchHandler
 
     public init(
       url: URL,
       headers: [String: String] = [:],
       localStorage: GoTrueLocalStorage? = nil,
+      encoder: JSONEncoder = .goTrue,
+      decoder: JSONDecoder = .goTrue,
       fetch: @escaping FetchHandler = { try await URLSession.shared.data(for: $0) }
     ) {
       self.url = url
       self.headers = headers
-      self.localStorage = localStorage ?? KeychainLocalStorage(
-        service: "supabase.gotrue.swift",
-        accessGroup: nil
-      )
+      self.localStorage =
+        localStorage
+        ?? KeychainLocalStorage(
+          service: "supabase.gotrue.swift",
+          accessGroup: nil
+        )
+      self.encoder = encoder
+      self.decoder = decoder
       self.fetch = fetch
     }
   }
@@ -63,14 +71,19 @@ public final class GoTrueClient {
     url: URL,
     headers: [String: String] = [:],
     localStorage: GoTrueLocalStorage? = nil,
+    encoder: JSONEncoder = .goTrue,
+    decoder: JSONDecoder = .goTrue,
     fetch: @escaping FetchHandler = { try await URLSession.shared.data(for: $0) }
   ) {
-    self.init(configuration: Configuration(
-      url: url,
-      headers: headers,
-      localStorage: localStorage,
-      fetch: fetch
-    ))
+    self.init(
+      configuration: Configuration(
+        url: url,
+        headers: headers,
+        localStorage: localStorage,
+        encoder: encoder,
+        decoder: decoder,
+        fetch: fetch
+      ))
   }
 
   public init(configuration: Configuration) {
@@ -110,9 +123,9 @@ public final class GoTrueClient {
         path: "/signup",
         method: "POST",
         query: [
-          redirectTo.map { URLQueryItem(name: "redirect_to", value: $0.absoluteString) },
+          redirectTo.map { URLQueryItem(name: "redirect_to", value: $0.absoluteString) }
         ].compactMap { $0 },
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           SignUpRequest(
             email: email,
             password: password,
@@ -140,7 +153,7 @@ public final class GoTrueClient {
       request: .init(
         path: "/signup",
         method: "POST",
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           SignUpRequest(
             password: password,
             phone: phone,
@@ -152,9 +165,12 @@ public final class GoTrueClient {
     )
   }
 
-  private func _signUp(request: _Request) async throws -> AuthResponse {
+  private func _signUp(request: Request) async throws -> AuthResponse {
     await sessionManager.remove()
-    let response = try await execute(request).decoded(as: AuthResponse.self)
+    let response = try await execute(request).decoded(
+      as: AuthResponse.self,
+      decoder: configuration.decoder
+    )
 
     if let session = response.session {
       try await sessionManager.update(session)
@@ -172,7 +188,7 @@ public final class GoTrueClient {
         path: "/token",
         method: "POST",
         query: [URLQueryItem(name: "grant_type", value: "password")],
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           UserCredentials(email: email, password: password)
         )
       )
@@ -187,7 +203,7 @@ public final class GoTrueClient {
         path: "/token",
         method: "POST",
         query: [URLQueryItem(name: "grant_type", value: "password")],
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           UserCredentials(password: password, phone: phone)
         )
       )
@@ -204,15 +220,18 @@ public final class GoTrueClient {
         path: "/token",
         method: "POST",
         query: [URLQueryItem(name: "grant_type", value: "id_token")],
-        body: JSONEncoder.goTrue.encode(credentials)
+        body: configuration.encoder.encode(credentials)
       )
     )
   }
 
-  private func _signIn(request: _Request) async throws -> Session {
+  private func _signIn(request: Request) async throws -> Session {
     await sessionManager.remove()
 
-    let session = try await execute(request).decoded(as: Session.self)
+    let session = try await execute(request).decoded(
+      as: Session.self,
+      decoder: configuration.decoder
+    )
 
     if session.user.emailConfirmedAt != nil || session.user.confirmedAt != nil {
       try await sessionManager.update(session)
@@ -245,7 +264,7 @@ public final class GoTrueClient {
       .init(
         path: "/otp",
         method: "POST",
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           OTPParams(
             email: email,
             createUser: shouldCreateUser,
@@ -275,7 +294,7 @@ public final class GoTrueClient {
       .init(
         path: "/otp",
         method: "POST",
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           OTPParams(
             phone: phone,
             createUser: shouldCreateUser,
@@ -303,7 +322,7 @@ public final class GoTrueClient {
     }
 
     var queryItems: [URLQueryItem] = [
-      URLQueryItem(name: "provider", value: provider.rawValue),
+      URLQueryItem(name: "provider", value: provider.rawValue)
     ]
 
     if let scopes {
@@ -333,12 +352,13 @@ public final class GoTrueClient {
           path: "/token",
           method: "POST",
           query: [URLQueryItem(name: "grant_type", value: "refresh_token")],
-          body: JSONEncoder.goTrue.encode(UserCredentials(refreshToken: refreshToken))
+          body: configuration.encoder.encode(UserCredentials(refreshToken: refreshToken))
         )
-      ).decoded(as: Session.self)
+      ).decoded(as: Session.self, decoder: configuration.decoder)
 
-      if session.user.phoneConfirmedAt != nil || session.user.emailConfirmedAt != nil || session
-        .user.confirmedAt != nil
+      if session.user.phoneConfirmedAt != nil || session.user.emailConfirmedAt != nil
+        || session
+          .user.confirmedAt != nil
       {
         try await sessionManager.update(session)
         authEventChangeContinuation.yield(.signedIn)
@@ -381,7 +401,7 @@ public final class GoTrueClient {
         method: "GET",
         headers: ["Authorization": "\(tokenType) \(accessToken)"]
       )
-    ).decoded(as: User.self)
+    ).decoded(as: User.self, decoder: configuration.decoder)
 
     let session = Session(
       providerToken: providerToken,
@@ -433,7 +453,7 @@ public final class GoTrueClient {
       session = try await refreshSession(refreshToken: refreshToken)
     } else {
       let user = try await authorizedExecute(.init(path: "/user", method: "GET"))
-        .decoded(as: User.self)
+        .decoded(as: User.self, decoder: configuration.decoder)
       session = Session(
         accessToken: accessToken,
         tokenType: "bearer",
@@ -482,9 +502,9 @@ public final class GoTrueClient {
         path: "/verify",
         method: "POST",
         query: [
-          redirectTo.map { URLQueryItem(name: "redirect_to", value: $0.absoluteString) },
+          redirectTo.map { URLQueryItem(name: "redirect_to", value: $0.absoluteString) }
         ].compactMap { $0 },
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           VerifyOTPParams(
             email: email,
             token: token,
@@ -508,7 +528,7 @@ public final class GoTrueClient {
       request: .init(
         path: "/verify",
         method: "POST",
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           VerifyOTPParams(
             phone: phone,
             token: token,
@@ -520,10 +540,13 @@ public final class GoTrueClient {
     )
   }
 
-  private func _verifyOTP(request: _Request) async throws -> AuthResponse {
+  private func _verifyOTP(request: Request) async throws -> AuthResponse {
     await sessionManager.remove()
 
-    let response = try await execute(request).decoded(as: AuthResponse.self)
+    let response = try await execute(request).decoded(
+      as: AuthResponse.self,
+      decoder: configuration.decoder
+    )
 
     if let session = response.session {
       try await sessionManager.update(session)
@@ -535,11 +558,11 @@ public final class GoTrueClient {
 
   /// Updates user data, if there is a logged in user.
   @discardableResult
-  public func update(user _: UserAttributes) async throws -> User {
+  public func update(user: UserAttributes) async throws -> User {
     var session = try await sessionManager.session()
     let user = try await authorizedExecute(
-      .init(path: "/user", method: "PUT", body: JSONEncoder.goTrue.encode(user))
-    ).decoded(as: User.self)
+      .init(path: "/user", method: "PUT", body: configuration.encoder.encode(user))
+    ).decoded(as: User.self, decoder: configuration.decoder)
     session.user = user
     try await sessionManager.update(session)
     authEventChangeContinuation.yield(.userUpdated)
@@ -557,9 +580,9 @@ public final class GoTrueClient {
         path: "/recover",
         method: "POST",
         query: [
-          redirectTo.map { URLQueryItem(name: "redirect_to", value: $0.absoluteString) },
+          redirectTo.map { URLQueryItem(name: "redirect_to", value: $0.absoluteString) }
         ].compactMap { $0 },
-        body: JSONEncoder.goTrue.encode(
+        body: configuration.encoder.encode(
           RecoverParams(
             email: email,
             gotrueMetaSecurity: captchaToken.map(GoTrueMetaSecurity.init(captchaToken:))
@@ -570,7 +593,7 @@ public final class GoTrueClient {
   }
 
   @discardableResult
-  private func authorizedExecute(_ request: _Request) async throws -> Response {
+  private func authorizedExecute(_ request: Request) async throws -> Response {
     let session = try await sessionManager.session()
 
     var request = request
@@ -580,7 +603,7 @@ public final class GoTrueClient {
   }
 
   @discardableResult
-  private func execute(_ request: _Request) async throws -> Response {
+  private func execute(_ request: Request) async throws -> Response {
     var request = request
     request.headers.merge(configuration.headers) { r, _ in r }
     let urlRequest = try request.urlRequest(withBaseURL: configuration.url)
@@ -590,9 +613,9 @@ public final class GoTrueClient {
       throw URLError(.badServerResponse)
     }
 
-    guard (200 ..< 300).contains(httpResponse.statusCode) else {
-      // TODO: throw another error
-      throw URLError(.badServerResponse)
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      let apiError = try configuration.decoder.decode(GoTrueError.APIError.self, from: data)
+      throw GoTrueError.api(apiError)
     }
 
     return Response(data: data, response: httpResponse)

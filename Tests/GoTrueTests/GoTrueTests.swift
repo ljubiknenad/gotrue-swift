@@ -1,7 +1,6 @@
+@_spi(Experimental) import GoTrue
 import Mocker
 import XCTest
-
-@testable @_spi(Experimental) import GoTrue
 
 final class InMemoryLocalStorage: GoTrueLocalStorage, @unchecked Sendable {
   private let queue = DispatchQueue(label: "InMemoryLocalStorage")
@@ -66,7 +65,8 @@ final class GoTrueTests: XCTestCase {
         data: [.post: json(named: "session")]
       ).register()
 
-      let session = try await sut
+      let session =
+        try await sut
         .signInWithIdToken(credentials: OpenIDConnectCredentials(idToken: "dummy-token-1234"))
       XCTAssertEqual(session.user.email, "guilherme@binaryscraping.co")
     }
@@ -82,7 +82,7 @@ final class GoTrueTests: XCTestCase {
       url,
       URL(
         string:
-        "http://localhost:54321/auth/v1/authorize?provider=github&scopes=read,write&redirect_to=https://dummy-url.com/redirect&extra_key=extra_value"
+          "http://localhost:54321/auth/v1/authorize?provider=github&scopes=read,write&redirect_to=https://dummy-url.com/redirect&extra_key=extra_value"
       )!
     )
   }
@@ -90,7 +90,7 @@ final class GoTrueTests: XCTestCase {
   func testSessionFromURL() async throws {
     let url = URL(
       string:
-      "https://dummy-url.com/callback#access_token=accesstoken&expires_in=60&refresh_token=refreshtoken&token_type=bearer"
+        "https://dummy-url.com/callback#access_token=accesstoken&expires_in=60&refresh_token=refreshtoken&token_type=bearer"
     )!
 
     var mock = Mock.get(path: "user", json: "user")
@@ -114,7 +114,7 @@ final class GoTrueTests: XCTestCase {
   func testSessionFromURLWithMissingComponent() async {
     let url = URL(
       string:
-      "https://dummy-url.com/callback#access_token=accesstoken&expires_in=60&refresh_token=refreshtoken"
+        "https://dummy-url.com/callback#access_token=accesstoken&expires_in=60&refresh_token=refreshtoken"
     )!
 
     do {
